@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const svg2img = require('svg2img');
+const { Resvg } = require('@resvg/resvg-js');
+const sharp = require('sharp');
 class publicController {
     constructor() {
         this.publicNameAvatar = process.env.AVATAR_PUBLIC_NAME ? process.env.AVATAR_PUBLIC_NAME : "";
@@ -28,6 +29,23 @@ class publicController {
             const path = `${process.env.UPLOAD_DIR}/${folderName}/${imageName}`;
             return path;
         };
+        //Generate deterministic number from seed using simple hash
+        this.getDeterministicValue = (seed, range) => {
+            let hash = 0;
+            for (let i = 0; i < seed.length; i++) {
+                const char = seed.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32-bit integer
+            }
+            return Math.abs(hash) % range;
+        };
+        this.getImageBySeed = (seed, folderName, startIndex, endIndex) => {
+            const range = (endIndex + 1) - startIndex;
+            const deterministicIndex = this.getDeterministicValue(seed, range) + startIndex;
+            const imageName = this.publicNameAvatar + deterministicIndex + this.foramtFile;
+            const path = `${process.env.UPLOAD_DIR}/${folderName}/${imageName}`;
+            return path;
+        };
         this.index = (req, res, next) => {
             var _a, _b;
             try {
@@ -40,17 +58,32 @@ class publicController {
                     return;
                 }
                 let path = null;
-                if (req.query.username) {
+                let isDeterministic = false;
+                if (req.query.seed) {
+                    path = this.getImageBySeed(`${req.query.seed}`, "id", startIndex, endIndex);
+                    isDeterministic = true;
+                }
+                else if (req.query.username) {
                     path = this.getImageByUsername(`${req.query.username}`, "id", startIndex, endIndex);
+                    isDeterministic = true;
                 }
                 else {
                     if ((_a = req.headers) === null || _a === void 0 ? void 0 : _a.referer) {
                         console.log("=> Refer:", (_b = req.headers) === null || _b === void 0 ? void 0 : _b.referer);
                     }
                     path = this.getImagePath("id", startIndex, endIndex);
+                    isDeterministic = false;
                 }
                 //console.log(path)
                 if (path) {
+                    // Add eternal cache headers for deterministic content (seed/username based)
+                    if (isDeterministic) {
+                        res.set({
+                            'Cache-Control': 'public, max-age=31536000, immutable',
+                            'Expires': new Date(Date.now() + 31536000000).toUTCString(), // 1 year
+                            'ETag': `"${req.query.seed || req.query.username}"`
+                        });
+                    }
                     res.
                         status(200).
                         sendFile(path, { root: '.' });
@@ -83,6 +116,12 @@ class publicController {
             const path = `${process.env.UPLOAD_DIR}/id/${imageName}`;
             //console.log(path)
             if (path) {
+                // Add eternal cache headers for deterministic content (byId is always deterministic)
+                res.set({
+                    'Cache-Control': 'public, max-age=31536000, immutable',
+                    'Expires': new Date(Date.now() + 31536000000).toUTCString(),
+                    'ETag': `"id-${idAvatar}"`
+                });
                 res.
                     status(200).
                     sendFile(path, { root: '.' });
@@ -98,14 +137,29 @@ class publicController {
                 return;
             }
             let path = null;
-            if (req.query.username) {
+            let isDeterministic = false;
+            if (req.query.seed) {
+                path = this.getImageBySeed(`${req.query.seed}`, "boy", startIndex, endIndex);
+                isDeterministic = true;
+            }
+            else if (req.query.username) {
                 path = this.getImageByUsername(`${req.query.username}`, "id", startIndex, endIndex);
+                isDeterministic = true;
             }
             else {
                 path = this.getImagePath("boy", startIndex, endIndex);
+                isDeterministic = false;
             }
             //console.log(path)
             if (path) {
+                // Add eternal cache headers for deterministic content
+                if (isDeterministic) {
+                    res.set({
+                        'Cache-Control': 'public, max-age=31536000, immutable',
+                        'Expires': new Date(Date.now() + 31536000000).toUTCString(),
+                        'ETag': `"boy-${req.query.seed || req.query.username}"`
+                    });
+                }
                 res.
                     status(200).
                     sendFile(path, { root: '.' });
@@ -121,14 +175,29 @@ class publicController {
                 return;
             }
             let path = null;
-            if (req.query.username) {
+            let isDeterministic = false;
+            if (req.query.seed) {
+                path = this.getImageBySeed(`${req.query.seed}`, "girl", startIndex, endIndex);
+                isDeterministic = true;
+            }
+            else if (req.query.username) {
                 path = this.getImageByUsername(`${req.query.username}`, "id", startIndex, endIndex);
+                isDeterministic = true;
             }
             else {
                 path = this.getImagePath("girl", startIndex, endIndex);
+                isDeterministic = false;
             }
             //console.log(path)
             if (path) {
+                // Add eternal cache headers for deterministic content
+                if (isDeterministic) {
+                    res.set({
+                        'Cache-Control': 'public, max-age=31536000, immutable',
+                        'Expires': new Date(Date.now() + 31536000000).toUTCString(),
+                        'ETag': `"girl-${req.query.seed || req.query.username}"`
+                    });
+                }
                 res.
                     status(200).
                     sendFile(path, { root: '.' });
@@ -155,7 +224,7 @@ class publicController {
             var regex = /^([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/;
             return regex.test(color);
         };
-        this.svgAvatar = (req, res, next) => {
+        this.svgAvatar = async (req, res, next) => {
             var _a, _b, _c, _d;
             if ((_a = req.headers) === null || _a === void 0 ? void 0 : _a.referer) {
                 console.log("=> Refer:", (_b = req.headers) === null || _b === void 0 ? void 0 : _b.referer);
@@ -181,12 +250,30 @@ class publicController {
             let defaultColor = defaultColorArray[Math.floor(Math.random() * 3)];
             let format = 'png';
             let username = [String.fromCharCode(Math.random() * 26 + 65), String.fromCharCode(Math.random() * 26 + 65)]; //Random
+            let isDeterministic = false;
             const size = req.query.size ? (Number(req.query.size) > 32 ? (Number(req.query.size) < 1024 ? Number(req.query.size) : 1024) : 32) : 256;
             const uppercase = req.query.uppercase ? (req.query.uppercase == "false" ? false : true) : true;
             const bold = req.query.bold ? (req.query.bold == "false" ? false : true) : true;
             const length = req.query.length ? (Number(req.query.length) > 2 ? 2 : Number(req.query.length)) : 2;
-            //Username
-            if (req.query.username) {
+            //Seed or Username (deterministic generation)
+            if (req.query.seed) {
+                console.log("Seed: ", req.query.seed);
+                const seed = req.query.seed.toString();
+                const seedHash = this.getDeterministicValue(seed, 1000); // Use larger range for more variety
+                // Generate deterministic initials from seed
+                const firstChar = String.fromCharCode((seedHash % 26) + 65);
+                const secondChar = String.fromCharCode(((seedHash >> 8) % 26) + 65);
+                username = [firstChar, secondChar];
+                if (username[0].length > 1) {
+                    username.push(username[0].charAt(1));
+                }
+                else {
+                    username.push("");
+                }
+                defaultColor = defaultColorArray[seedHash % 4];
+                isDeterministic = true;
+            }
+            else if (req.query.username) {
                 console.log("Username: ", req.query.username);
                 username = req.query.username.toString().split(' ');
                 if (username[0].length > 1) {
@@ -196,6 +283,7 @@ class publicController {
                     username.push("");
                 }
                 defaultColor = defaultColorArray[req.query.username.toString().length % 4];
+                isDeterministic = true;
             }
             //Background
             // @ts-ignore
@@ -239,24 +327,44 @@ class publicController {
             </svg>
         `;
             // Convert SVG to Format
-            svg2img(svgContent, {
-                format,
-                resvg: {
+            try {
+                const resvg = new Resvg(svgContent, {
                     font: {
                         fontFiles: [`./static/font/${bold ? 'Roboto-Medium.ttf' : 'Roboto-Light.ttf'}`],
                         loadSystemFonts: false,
                     },
+                    fitTo: {
+                        mode: 'original',
+                    },
+                });
+                const pngData = resvg.render();
+                const pngBuffer = pngData.asPng();
+                // Add eternal cache headers for deterministic content
+                if (isDeterministic) {
+                    res.set({
+                        'Cache-Control': 'public, max-age=31536000, immutable',
+                        'Expires': new Date(Date.now() + 31536000000).toUTCString(),
+                        'ETag': `"svg-${req.query.seed || req.query.username}-${size}-${format}"`
+                    });
                 }
-            }, (error, buffer) => {
-                if (error) {
-                    res.status(500)
-                        .sendFile(this.get404Avatar(), { root: '.' });
+                if (format === 'jpg') {
+                    // Convert PNG to JPEG using sharp
+                    const jpegBuffer = await sharp(pngBuffer)
+                        .jpeg({ quality: 90 })
+                        .toBuffer();
+                    res.set('Content-Type', 'image/jpeg');
+                    res.send(jpegBuffer);
                 }
                 else {
-                    res.set('Content-Type', `image/${format}`);
-                    res.send(buffer);
+                    // Return PNG directly
+                    res.set('Content-Type', 'image/png');
+                    res.send(pngBuffer);
                 }
-            });
+            }
+            catch (error) {
+                res.status(500)
+                    .sendFile(this.get404Avatar(), { root: '.' });
+            }
         };
     }
 }
