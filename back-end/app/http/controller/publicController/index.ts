@@ -142,7 +142,7 @@ class publicController {
         if (path) {
             // Add eternal cache headers for deterministic content (byId is always deterministic)
             res.set({
-                'Cache-Control': 'public, max-age=31536000, immutable',
+                'Cache-Control': 'public, max-age=31536000, s-maxage=31536000, immutable',
                 'Expires': new Date(Date.now() + 31536000000).toUTCString(),
                 'ETag': `"id-${idAvatar}"`
             });
